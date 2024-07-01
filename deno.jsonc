@@ -1,0 +1,27 @@
+{
+  "name": "@classic/js",
+  "exports": {
+    ".": "./src/mod.ts",
+    "./build": "./src/build.ts"
+  },
+  "publish": {
+    "include": [
+      "LICENSE",
+      "README.md",
+      "dist/**/*.ts",
+      "src/**/*.ts"
+    ]
+  },
+  "compilerOptions": {
+    "lib": [
+      "deno.ns",
+      "DOM",
+      "DOM.Iterable",
+      "ES2021"
+    ]
+  },
+  "tasks": {
+    "build": "deno run -A build.ts",
+    "clean": "rm -r dist"
+  }
+}
