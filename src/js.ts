@@ -714,7 +714,7 @@ class JSMetaFunction extends JSMeta {
 
   private _hasResources?: boolean;
   // @ts-ignore Do not care JSMeta definition
-  get hasResources() {
+  get hasResources(): boolean {
     return this._hasResources ??= this.body.hasResources;
   }
 
@@ -743,7 +743,7 @@ class JSMetaFunction extends JSMeta {
     return [...args, "=>", this.body];
   }
 
-  [Symbol.for("Deno.customInspect")]({ ...opts }: Deno.InspectOptions) {
+  [Symbol.for("Deno.customInspect")]({ ...opts }: Deno.InspectOptions): string {
     opts.depth ??= 4;
     return `function(${
       this.args.map((a) => Deno.inspect(a, opts)).join(", ")
@@ -752,13 +752,13 @@ class JSMetaFunction extends JSMeta {
 }
 
 class JSMetaFunctionBody extends JSMeta {
-  readonly hasResources?: boolean;
+  readonly hasResources: boolean;
 
   constructor(public readonly fnBody: JSFnBody) {
     super();
     this.hasResources = Array.isArray(this.fnBody)
       ? this.fnBody.some((s) => s[jsSymbol].hasResources)
-      : this.fnBody[jsSymbol].hasResources;
+      : !!this.fnBody[jsSymbol].hasResources;
   }
 
   isExpression(context: JSMetaContext): boolean {
@@ -813,7 +813,7 @@ class JSMetaFunctionBody extends JSMeta {
     return parts;
   }
 
-  [Symbol.for("Deno.customInspect")](opts: Deno.InspectOptions) {
+  [Symbol.for("Deno.customInspect")](opts: Deno.InspectOptions): string {
     return Array.isArray(this.fnBody)
       ? this.fnBody.length
         ? `{${
@@ -841,7 +841,7 @@ class JSMetaArgument extends JSMeta {
     return [newName];
   }
 
-  [Symbol.for("Deno.customInspect")]() {
+  [Symbol.for("Deno.customInspect")](): string {
     return this.name ? this.name : "?";
   }
 }
@@ -855,13 +855,13 @@ class JSMetaModule extends JSMeta {
     return [context.modules, `[${context.modules.index(this.url)}]`];
   }
 
-  [Symbol.for("Deno.customInspect")]() {
+  [Symbol.for("Deno.customInspect")](): string {
     return `import(${this.url})`;
   }
 }
 
 class JSMetaModuleStore extends JSMeta {
-  isAwaited = true;
+  isAwaited: boolean = true;
   readonly #urls: Record<string, number> = {};
   #i = 0;
 
@@ -877,17 +877,17 @@ class JSMetaModuleStore extends JSMeta {
     ];
   }
 
-  index(url: string) {
+  index(url: string): number {
     return this.#urls[url] ??= this.#i++;
   }
 
-  [Symbol.for("Deno.customInspect")]() {
+  [Symbol.for("Deno.customInspect")](): string {
     return `modules`;
   }
 }
 
 class JSMetaRef extends JSMeta {
-  readonly isntAssignable = true;
+  readonly isntAssignable: boolean = true;
 
   constructor() {
     super();
@@ -898,7 +898,7 @@ class JSMetaRef extends JSMeta {
     return [context.refs.js[jsSymbol], `[${context.refs.byMeta.get(this)}]`];
   }
 
-  [Symbol.for("Deno.customInspect")]() {
+  [Symbol.for("Deno.customInspect")](): string {
     return `ref`;
   }
 }
@@ -917,7 +917,7 @@ const makeRefs = js.fn((
 );
 
 class JSMetaRefStore {
-  readonly byMeta = new Map<JSMetaRef, number>();
+  readonly byMeta: Map<JSMetaRef, number> = new Map();
   readonly js: JS<readonly EventTarget[]>;
 
   constructor(
@@ -939,7 +939,7 @@ class JSMetaRefStore {
   }
 }
 
-const domApi =
+const domApi: JS<typeof import("./dom.ts")>["api"] =
   js.module<typeof import("./dom.ts")>(import.meta.resolve("../dist/dom.js"))
     .api;
 const domStore = domApi.store;
@@ -956,9 +956,9 @@ export const client = {
 };
 
 class JSMetaResource<T extends JSONable = JSONable> extends JSMeta {
-  readonly hasResources = true;
-  readonly isntAssignable = true;
-  readonly js = jsable(this)();
+  readonly hasResources: boolean = true;
+  readonly isntAssignable: boolean = true;
+  readonly js: JSable<T> = jsable(this)();
 
   constructor(
     public readonly uri: string,
@@ -972,7 +972,7 @@ class JSMetaResource<T extends JSONable = JSONable> extends JSMeta {
     return [await context.resources.peek<T>(this.uri, this.fetch)];
   }
 
-  [Symbol.for("Deno.customInspect")]() {
+  [Symbol.for("Deno.customInspect")](): string {
     return `$(${this.uri})`;
   }
 }
@@ -1029,11 +1029,11 @@ class JSMetaResources extends JSMeta {
       : inline(this.#peek(this.#store[uri][0]))[jsSymbol];
   }
 
-  indexOf(uri: string) {
+  indexOf(uri: string): number {
     return this.#store[uri][0];
   }
 
-  [Symbol.for("Deno.customInspect")]() {
+  [Symbol.for("Deno.customInspect")](): string {
     return `resources`;
   }
 }
@@ -1058,7 +1058,7 @@ class JSMetaVar extends JSMeta {
     return this.cb(context);
   }
 
-  [Symbol.for("Deno.customInspect")]() {
+  [Symbol.for("Deno.customInspect")](): string {
     return "var";
   }
 }
@@ -1097,7 +1097,7 @@ class JSMetaURIs extends JSMeta {
       : [(this.uris as JSable)[jsSymbol]];
   }
 
-  [Symbol.for("Deno.customInspect")]() {
+  [Symbol.for("Deno.customInspect")](): string {
     return `$(${this.uris})`;
   }
 }

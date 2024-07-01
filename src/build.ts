@@ -1,4 +1,4 @@
-import * as esbuild from "npm:esbuild";
+import * as esbuild from "npm:esbuild@0.21.5";
 
 export const build = async (entryPoints: string[]): Promise<void> => {
   await esbuild.build({
