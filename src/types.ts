@@ -49,13 +49,13 @@ type JSMapped = readonly unknown[] | Record<any, any>;
 type JSFunction = Function | Record<any, any>;
 type OnlyJSArg<T, Filter> = Exclude<T, Exclude<JSArgUnion, Filter>>;
 
-declare global {
-  namespace JSOverrides {
-    interface JS<T> {
-      // Promise: T extends Promise<infer G> ? JSPromise<G> : never;
-    }
+declare namespace JSOverrides {
+  interface JS<T> {
+    // Promise: T extends Promise<infer G> ? JSPromise<G> : never;
   }
 }
+
+export type { JSOverrides };
 
 type JSOverride<T> = JSOverrides.JS<T>[keyof JSOverrides.JS<any>];
 

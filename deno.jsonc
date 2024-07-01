@@ -24,5 +24,12 @@
   "tasks": {
     "build": "deno run -A build.ts",
     "clean": "rm -r dist"
+  },
+  "lint": {
+    "rules": {
+      "exclude": [
+        "no-empty-interface"
+      ]
+    }
   }
 }
