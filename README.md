@@ -1,5 +1,7 @@
 # @classic/js - Page specific JS from any backend
 
+[![JSR](https://jsr.io/badges/@classic/js)](https://jsr.io/@classic/js)
+
 Custom elements/web components scope reusable logic and style.
 On the other hand, @classic/js offers a way to send dynamic arbitrary code in web pages to fully control native and custom elements.
 
