@@ -1,3 +1,9 @@
+/**
+ * Tuple holding refs attached to a jsx tree render.
+ * First holds node index, second represents: children if present, otherwise (undefined) means next ref is associated.
+ */
+export type Activation = ([number] | [number, Activation])[];
+
 export type JS<T> = _JS<T, []>;
 
 type _JS<T, Depth extends unknown[]> = JSable<T> & _JSProxy<T, Depth>;

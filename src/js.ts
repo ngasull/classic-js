@@ -1,4 +1,5 @@
 import type {
+  Activation,
   Fn,
   ImplicitlyJSable,
   JS,
@@ -17,12 +18,6 @@ import { isJSable, jsSymbol } from "./types.ts";
 // https://graphemica.com/categories/letter-number/page/2
 export const argn = (n: number) => `𐏒${n}`;
 export const varArg = "𐏑";
-
-/**
- * Tuple holding refs attached to a jsx tree render.
- * First holds node index, second represents: children if present, otherwise (undefined) means next ref is associated.
- */
-type Activation = ([number] | [number, Activation])[];
 
 type Writable<T> = { -readonly [K in keyof T]: T[K] };
 
