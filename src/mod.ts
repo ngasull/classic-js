@@ -1,10 +1,13 @@
 export {
   client,
+  globalServedJSContext,
   indexedUris,
   inline,
   js,
+  jsPublicPath,
   jsResources,
   mkRef,
+  ServedJSContext,
   toJS,
   unsafe,
 } from "./js.ts";

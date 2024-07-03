@@ -841,9 +841,28 @@ class JSMetaArgument extends JSMeta {
   }
 }
 
+export const jsPublicPath = "/.js";
+
+export class ServedJSContext {
+  #declaredSet = new Set<string>();
+  #declared: readonly string[] | null = null;
+
+  register(url: string): void {
+    this.#declared = null;
+    this.#declaredSet.add(url);
+  }
+
+  get modules(): readonly string[] {
+    return this.#declared ??= [...this.#declaredSet];
+  }
+}
+
+export const globalServedJSContext: ServedJSContext = new ServedJSContext();
+
 class JSMetaModule extends JSMeta {
   constructor(private url: string) {
     super();
+    globalServedJSContext.register(url);
   }
 
   template(context: JSMetaContext): (string | JSMeta)[] {
