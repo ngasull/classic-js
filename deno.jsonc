@@ -1,6 +1,6 @@
 {
   "name": "@classic/js",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "exports": {
     ".": "./src/mod.ts",
     "./build": "./src/build.ts"
