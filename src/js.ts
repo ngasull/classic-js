@@ -365,26 +365,23 @@ class JSMetaAwait extends JSMeta {
   }
 }
 
-export const toJS = async <A extends readonly unknown[]>(f: Fn<A, unknown>, {
-  activation,
-  resolve,
-  isServer,
-}: {
-  resolve?: (url: string) => string;
-  activation?: [
-    JS<NodeList | readonly Node[]>,
-    Activation,
-    readonly JSable<EventTarget>[],
-  ];
-  isServer?: boolean;
-} = {}): Promise<[string, ...{ -readonly [I in keyof A]: string }]> => {
+export const toJS = async <A extends readonly unknown[]>(
+  f: Fn<A, unknown>,
+  { activation }: {
+    activation?: [
+      JS<NodeList | readonly Node[]>,
+      Activation,
+      readonly JSable<EventTarget>[],
+    ];
+  } = {},
+): Promise<[string, ...{ -readonly [I in keyof A]: string }]> => {
   const globalFn = new JSMetaFunction(f as Fn<readonly never[], unknown>, {
     scoped: false,
   });
   const globalBody = globalFn.body;
 
   let lastVarId = -1;
-  const context: JSMetaContext = mkMetaContext({ isServer, resolve });
+  const context: JSMetaContext = mkMetaContext(!activation);
 
   if (activation) {
     context.refs = new JSMetaRefStore(
@@ -524,12 +521,7 @@ export const toJS = async <A extends readonly unknown[]>(f: Fn<A, unknown>, {
   ];
 };
 
-const mkMetaContext = (
-  { resolve = (url) => import.meta.resolve(url), isServer = true }: {
-    resolve?: (uri: string) => string;
-    isServer?: boolean;
-  } = {},
-): JSMetaContext => ({
+const mkMetaContext = (isServer = true): JSMetaContext => ({
   isServer,
   argn: -1,
   args: new Map(),
@@ -537,7 +529,7 @@ const mkMetaContext = (
   declaredNames: new Map(),
   implicitRefs: new Map(),
   asyncScopes: new Set(),
-  modules: new JSMetaModuleStore(resolve),
+  modules: new JSMetaModuleStore(isServer),
 });
 
 const metaToJS = async (
@@ -596,7 +588,7 @@ const jsUtils = {
   },
 
   eval: async <T>(expr: JSable<T>): Promise<T> => {
-    const [rawJS] = await toJS(() => expr, { isServer: true });
+    const [rawJS] = await toJS(() => expr);
     const jsBody = `return(async()=>{${rawJS}})()`;
     try {
       return new Function("document", "window", jsBody)();
@@ -616,8 +608,8 @@ const jsUtils = {
       ? JS<(...args: Args) => T> & { [jsSymbol]: JSMetaFunction }
       : never,
 
-  module: <M>(path: string): JS<M> =>
-    makeConvenient(jsable(new JSMetaModule(path))<M>()),
+  module: <M>(name: `${string}/${string}`, path: string): JS<M> =>
+    makeConvenient(jsable(new JSMetaModule(name, path))<M>()),
 
   optional: <T>(expr: JSable<T>): JS<NonNullable<T>> => {
     const p = js<NonNullable<T>>`${expr}`;
@@ -860,39 +852,45 @@ export class ServedJSContext {
 export const globalServedJSContext: ServedJSContext = new ServedJSContext();
 
 class JSMetaModule extends JSMeta {
-  constructor(private url: string) {
+  constructor(private name: string, private url: string) {
     super();
     globalServedJSContext.register(url);
   }
 
   template(context: JSMetaContext): (string | JSMeta)[] {
-    return [context.modules, `[${context.modules.index(this.url)}]`];
+    return [context.modules, `[${context.modules.index(this.name, this.url)}]`];
   }
 
   [Symbol.for("Deno.customInspect")](): string {
-    return `import(${this.url})`;
+    return `import(${this.name}: ${this.url})`;
   }
 }
 
 class JSMetaModuleStore extends JSMeta {
   isAwaited: boolean = true;
-  readonly #urls: Record<string, number> = {};
+  readonly #urls: Record<string, [number, string]> = {};
   #i = 0;
 
-  constructor(private readonly resolve: (url: string) => string) {
+  constructor(private readonly isServer: boolean) {
     super();
   }
 
   template(_: JSMetaContext): (string | JSMeta)[] {
     return [
       `(await Promise.all(${
-        JSON.stringify(Object.keys(this.#urls).map(this.resolve))
+        JSON.stringify(
+          Object.values(this.#urls).map(([, uri]) => JSON.stringify(uri)),
+        )
       }.map(u=>import(u))))`,
     ];
   }
 
-  index(url: string): number {
-    return this.#urls[url] ??= this.#i++;
+  index(name: string, url: string): number {
+    this.#urls[url] ??= [
+      this.#i++,
+      this.isServer ? import.meta.resolve(url) : `${jsPublicPath}/${name}.js`,
+    ];
+    return this.#urls[url][0];
   }
 
   [Symbol.for("Deno.customInspect")](): string {
@@ -954,7 +952,10 @@ class JSMetaRefStore {
 }
 
 const domApi: JS<typeof import("./dom.ts")>["api"] =
-  js.module<typeof import("./dom.ts")>(import.meta.resolve("../dist/dom.js"))
+  js.module<typeof import("./dom.ts")>(
+    "classic/dom",
+    import.meta.resolve("../dist/dom.js"),
+  )
     .api;
 const domStore = domApi.store;
 
