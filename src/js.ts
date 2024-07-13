@@ -369,7 +369,6 @@ export const toJS = async <A extends readonly unknown[]>(
   f: Fn<A, unknown>,
   { activation }: {
     activation?: [
-      JS<NodeList | readonly Node[]>,
       Activation,
       readonly JSable<EventTarget>[],
     ];
@@ -387,7 +386,6 @@ export const toJS = async <A extends readonly unknown[]>(
     context.refs = new JSMetaRefStore(
       activation[0],
       activation[1],
-      activation[2],
     );
   }
 
@@ -739,10 +737,12 @@ class JSMetaFunction extends JSMeta {
 }
 
 class JSMetaFunctionBody extends JSMeta {
+  public readonly fnBody: Writable<JSFnBody>;
   readonly hasResources: boolean;
 
-  constructor(public readonly fnBody: JSFnBody) {
+  constructor(fnBody: JSFnBody) {
     super();
+    this.fnBody = fnBody as Writable<JSFnBody>;
     this.hasResources = Array.isArray(this.fnBody)
       ? this.fnBody.some((s) => s[jsSymbol].hasResources)
       : !!this.fnBody[jsSymbol].hasResources;
@@ -933,7 +933,6 @@ class JSMetaRefStore {
   readonly js: JS<readonly EventTarget[]>;
 
   constructor(
-    nodes: JS<NodeList | readonly Node[]>,
     activation: Activation,
     refs: readonly JSable<EventTarget>[],
   ) {
@@ -945,7 +944,7 @@ class JSMetaRefStore {
       )
     );
     this.js = makeRefs(
-      nodes,
+      js<NodeList>`document.childNodes`,
       makeConvenient(unsafe(JSON.stringify(activation)) as JSable<Activation>),
     );
   }
@@ -1183,4 +1182,47 @@ export const resources = <
     ): Resources<T, U> => ({ group, values: values.map(make) }),
   });
   return group;
+};
+
+const jsPublicBase = jsPublicPath + "/";
+
+export const serveModules = (
+  jsContext: ServedJSContext = globalServedJSContext,
+): (req: Request) => Promise<Response | void> => {
+  let prevModules: readonly string[] | null = null;
+  let pathResolution: Map<string, string>;
+
+  return async (req) => {
+    const path = new URL(req.url).pathname;
+
+    if (!path.startsWith(jsPublicBase)) return;
+
+    if (prevModules !== jsContext.modules) {
+      prevModules = jsContext.modules;
+      pathResolution = new Map(
+        prevModules.map((path) => {
+          const pathHash = "";
+          return [`${jsPublicBase}${pathHash}/${path}`, path];
+        }),
+      );
+    }
+
+    const resolved = pathResolution.get(path) ?? null;
+    const ext = resolved?.match(extensionRegExp)?.[1];
+    const contentType = ext && contentTypes[ext];
+
+    return resolved
+      ? new Response(await Deno.readFile(resolved), {
+        headers: contentType ? { "Content-Type": contentType } : undefined,
+      })
+      : new Response("Module not found", { status: 404 });
+  };
+};
+
+const extensionRegExp = /\.([^/.]+)$/;
+
+const contentTypes: Record<string, string | undefined> = {
+  css: "text/css; charset=utf-8",
+  js: "text/javascript; charset=utf-8",
+  map: "application/json; charset=utf-8",
 };

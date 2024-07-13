@@ -8,6 +8,7 @@ export {
   jsResources,
   mkRef,
   ServedJSContext,
+  serveModules,
   toJS,
   unsafe,
 } from "./js.ts";
