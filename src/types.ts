@@ -94,10 +94,7 @@ export type Fn<Args extends readonly unknown[], T = void> = (
 
 export type JSFnBody<T = unknown> = JSable<T> | JSStatements<T>;
 
-export type JSStatements<T> = [
-  JSable | (JSable<T> & JSReturn),
-  ...readonly (JSable | (JSable<T> & JSReturn))[],
-];
+export type JSStatements<T> = readonly JSable[];
 
 export type JSStatementsReturn<S extends JSStatements<unknown>> = S extends
   readonly JSNoReturn[] ? JS<void> & JSNoReturn
