@@ -8,6 +8,14 @@ import { isFunction } from "./dom/util.ts";
  */
 export type Activation = ([number] | [number, Activation])[];
 
+let i = 0;
+
+const refs = (node: Node, activation: Activation): readonly EventTarget[] =>
+  activation.flatMap(([childIndex, sub]) => {
+    for (; i < childIndex; i++) node = node.nextSibling!;
+    return sub ? refs(node.firstChild!, sub) : node;
+  });
+
 const sub = (
   target: EventTarget,
   cb: () => void | (() => void),
@@ -30,4 +38,4 @@ const sub = (
 /*
  * Effect API
  */
-export const api = { store, sub };
+export { refs, store, sub };

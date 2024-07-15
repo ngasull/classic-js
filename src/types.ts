@@ -4,6 +4,9 @@
  */
 export type Activation = ([number] | [number, Activation])[];
 
+export type RefTree =
+  ([JSable<EventTarget>] | [JSable<EventTarget>, RefTree])[];
+
 export type JS<T> = _JS<T, []>;
 
 type _JS<T, Depth extends unknown[]> = JSable<T> & _JSProxy<T, Depth>;

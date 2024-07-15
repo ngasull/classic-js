@@ -31,5 +31,8 @@
         "no-empty-interface"
       ]
     }
+  },
+  "imports": {
+    "@std/path": "jsr:@std/path@^1.0.0"
   }
 }

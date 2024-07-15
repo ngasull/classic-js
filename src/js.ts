@@ -1,3 +1,4 @@
+import { fromFileUrl } from "@std/path";
 import type {
   Activation,
   Fn,
@@ -10,6 +11,7 @@ import type {
   JSONable,
   JSReturn,
   ParamKeys,
+  RefTree,
   ResourceGroup,
   Resources,
 } from "./types.ts";
@@ -25,6 +27,7 @@ class JSMeta implements IJSMeta<JSMetaContext> {
   thenable?: JSMeta;
   isAwaited?: boolean;
   isntAssignable?: boolean;
+  mustDeclare?: boolean;
   readonly hasResources?: boolean;
   readonly isOptional?: boolean;
   readonly scope: JSMeta | null;
@@ -367,12 +370,7 @@ class JSMetaAwait extends JSMeta {
 
 export const toJS = async <A extends readonly unknown[]>(
   f: Fn<A, unknown>,
-  { activation }: {
-    activation?: [
-      Activation,
-      readonly JSable<EventTarget>[],
-    ];
-  } = {},
+  { refs }: { refs?: [string, RefTree] } = {},
 ): Promise<[string, ...{ -readonly [I in keyof A]: string }]> => {
   const globalFn = new JSMetaFunction(f as Fn<readonly never[], unknown>, {
     scoped: false,
@@ -380,13 +378,10 @@ export const toJS = async <A extends readonly unknown[]>(
   const globalBody = globalFn.body;
 
   let lastVarId = -1;
-  const context: JSMetaContext = mkMetaContext(!activation);
+  const context: JSMetaContext = mkMetaContext(!refs);
 
-  if (activation) {
-    context.refs = new JSMetaRefStore(
-      activation[0],
-      activation[1],
-    );
+  if (refs) {
+    context.refs = new JSMetaRefStore(...refs);
   }
 
   const scopeToRefs = new Map<JSMeta | null, Set<JSMeta>>();
@@ -439,6 +434,7 @@ export const toJS = async <A extends readonly unknown[]>(
   const declaredRefs = new Set<JSMeta>();
   const shouldDeclare = (meta: JSMeta): boolean => {
     let used = false;
+    if (meta.mustDeclare) return true;
     if (meta.isntAssignable) return false;
 
     for (
@@ -606,8 +602,11 @@ const jsUtils = {
       ? JS<(...args: Args) => T> & { [jsSymbol]: JSMetaFunction }
       : never,
 
-  module: <M>(name: `${string}/${string}`, path: string): JS<M> =>
-    makeConvenient(jsable(new JSMetaModule(name, path))<M>()),
+  module: <M>(
+    name: `${string}/${string}`,
+    path: string,
+    opts?: { readonly contexts?: readonly ServedJSContext[] },
+  ): JS<M> => makeConvenient(jsable(new JSMetaModule(name, path, opts))<M>()),
 
   optional: <T>(expr: JSable<T>): JS<NonNullable<T>> => {
     const p = js<NonNullable<T>>`${expr}`;
@@ -835,26 +834,67 @@ class JSMetaArgument extends JSMeta {
 
 export const jsPublicPath = "/.js";
 
-export class ServedJSContext {
-  #declaredSet = new Set<string>();
-  #declared: readonly string[] | null = null;
+const jsPublicBase = jsPublicPath + "/";
 
-  register(url: string): void {
-    this.#declared = null;
-    this.#declaredSet.add(url);
+const extensionRegExp = /\.([^/.]+)$/;
+
+const contentTypes: Record<string, string | undefined> = {
+  css: "text/css; charset=utf-8",
+  js: "text/javascript; charset=utf-8",
+  json: "application/json; charset=utf-8",
+  map: "application/json; charset=utf-8",
+};
+
+export class ServedJSContext {
+  #declared: Map<string, string> = new Map();
+  #pathResolution: Map<string, string> | null = null;
+
+  register(name: string, url: string): void {
+    this.#declared.set(name, url);
+    this.#pathResolution = null;
   }
 
-  get modules(): readonly string[] {
-    return this.#declared ??= [...this.#declaredSet];
+  async fetch(req: Request): Promise<Response | void> {
+    const path = new URL(req.url).pathname;
+
+    if (!path.startsWith(jsPublicBase)) return;
+
+    this.#pathResolution ??= new Map(
+      [...this.#declared.entries()].flatMap(([name, path]) => {
+        return [[`${jsPublicBase}${name}`, path], [
+          `${jsPublicBase}${name}.map`,
+          path + ".map",
+        ]];
+      }),
+    );
+
+    const resolved = this.#pathResolution.get(path);
+    const ext = resolved?.match(extensionRegExp)?.[1];
+    const contentType = ext && contentTypes[ext];
+
+    return resolved
+      ? new Response((await fetch(resolved)).body, {
+        headers: contentType ? { "Content-Type": contentType } : undefined,
+      })
+      : new Response("Module not found", { status: 404 });
   }
 }
 
 export const globalServedJSContext: ServedJSContext = new ServedJSContext();
 
+const defaultContexts = [globalServedJSContext];
+const defaultModuleOpts = { contexts: defaultContexts };
+
 class JSMetaModule extends JSMeta {
-  constructor(private name: string, private url: string) {
+  constructor(
+    private name: string,
+    private url: string,
+    { contexts = defaultContexts }: {
+      readonly contexts?: readonly ServedJSContext[];
+    } = defaultModuleOpts,
+  ) {
     super();
-    globalServedJSContext.register(url);
+    for (const context of contexts) context.register(name, url);
   }
 
   template(context: JSMetaContext): (string | JSMeta)[] {
@@ -867,8 +907,9 @@ class JSMetaModule extends JSMeta {
 }
 
 class JSMetaModuleStore extends JSMeta {
-  isAwaited: boolean = true;
-  readonly #urls: Record<string, [number, string]> = {};
+  readonly mustDeclare = true;
+  readonly isAwaited: boolean = true;
+  #urls: Record<string, [number, string]> = {};
   #i = 0;
 
   constructor(private readonly isServer: boolean) {
@@ -879,7 +920,7 @@ class JSMetaModuleStore extends JSMeta {
     return [
       `(await Promise.all(${
         JSON.stringify(
-          Object.values(this.#urls).map(([, uri]) => JSON.stringify(uri)),
+          Object.values(this.#urls).map(([, uri]) => uri),
         )
       }.map(u=>import(u))))`,
     ];
@@ -888,7 +929,7 @@ class JSMetaModuleStore extends JSMeta {
   index(name: string, url: string): number {
     this.#urls[url] ??= [
       this.#i++,
-      this.isServer ? import.meta.resolve(url) : `${jsPublicPath}/${name}.js`,
+      this.isServer ? import.meta.resolve(url) : `${jsPublicBase}${name}`,
     ];
     return this.#urls[url][0];
   }
@@ -907,7 +948,7 @@ class JSMetaRef extends JSMeta {
 
   template(context: JSMetaContext): (string | JSMeta)[] {
     if (!context.refs) throw Error(`Must provide activation when using refs`);
-    return [context.refs.js[jsSymbol], `[${context.refs.byMeta.get(this)}]`];
+    return [context.refs, "[", context.refs.get(this).toString(), "]"];
   }
 
   [Symbol.for("Deno.customInspect")](): string {
@@ -915,50 +956,84 @@ class JSMetaRef extends JSMeta {
   }
 }
 
-const makeRefs = js.fn((
-  nodes: JS<NodeList | readonly Node[]>,
-  activation: JS<Activation>,
-): JSable<readonly EventTarget[]> =>
-  // @ts-ignore TODO Support `flatMap`
-  activation.flatMap(([childIndex, h1]) => {
-    const child = js<ChildNode>`${nodes}[${childIndex}]`;
-    return js`${h1}?${
-      makeRefs(child.childNodes, h1 as JS<Activation>)
-    }:${child}`;
-  })
-);
-
-class JSMetaRefStore {
-  readonly byMeta: Map<JSMetaRef, number> = new Map();
-  readonly js: JS<readonly EventTarget[]>;
+class JSMetaRefStore extends JSMeta {
+  readonly mustDeclare = true;
+  #metas: Set<JSMeta> = new Set();
+  #referenced: Map<JSMeta, number> = new Map();
+  #firstPass: boolean = true;
 
   constructor(
-    activation: Activation,
-    refs: readonly JSable<EventTarget>[],
+    private readonly firstNode: string,
+    private readonly refs: RefTree,
   ) {
-    refs.forEach((r, i) =>
-      this.byMeta.set(
-        // @ts-ignore: TODO Make JSables specific to new sub-meta types
-        r[jsSymbol],
-        i,
-      )
-    );
-    this.js = makeRefs(
-      js<NodeList>`document.childNodes`,
-      makeConvenient(unsafe(JSON.stringify(activation)) as JSable<Activation>),
-    );
+    super();
+
+    const iterRefs = (refs: RefTree) =>
+      refs.forEach(([r, children]) => {
+        this.#metas.add(r[jsSymbol]);
+        if (children) iterRefs(children);
+      });
+    iterRefs(refs);
+  }
+
+  template(_context: JSMetaContext): (string | JSMeta)[] {
+    if (this.#firstPass) {
+      this.#firstPass = false;
+      return [];
+    } else {
+      // On second pass, every used ref is accessed: compute activation
+      return [
+        client.refs[jsSymbol],
+        "(",
+        this.firstNode,
+        ",",
+        JSON.stringify(this.#activateReferenced(this.refs)),
+        ")",
+      ];
+    }
+  }
+
+  get(ref: JSMetaRef): number {
+    if (!this.#metas.has(ref)) return -1;
+
+    const i = this.#referenced.get(ref);
+    if (i == null) {
+      this.#referenced.set(ref, -1);
+      return -1;
+    }
+    return i;
+  }
+
+  #lastRefIndex = -1;
+  #activateReferenced(refs: RefTree): Activation {
+    return refs.flatMap(([ref, children], i) => {
+      const activation: Activation = [];
+      const r = this.#referenced.get(ref[jsSymbol]);
+      const referencedChildren = children && this.#activateReferenced(children);
+
+      if (r) {
+        activation.push([i]);
+        this.#referenced.set(ref[jsSymbol], ++this.#lastRefIndex);
+      }
+
+      if (referencedChildren?.length) activation.push([i, referencedChildren]);
+
+      return activation;
+    });
   }
 }
 
-const domApi: JS<typeof import("./dom.ts")>["api"] =
-  js.module<typeof import("./dom.ts")>(
-    "classic/dom",
-    import.meta.resolve("../dist/dom.js"),
-  )
-    .api;
+type DomApi = typeof import("./dom.ts");
+
+const domApi: JS<DomApi> = js.module<typeof import("./dom.ts")>(
+  "classic/dom.js",
+  import.meta.resolve("../dist/dom.js"),
+);
 const domStore = domApi.store;
 
-export const client = {
+// Memoized version of the API, ensuring static JS references
+export const client: JS<DomApi> = {
+  refs: domApi.refs,
   store: {
     peek: domStore.peek,
     set: domStore.set,
@@ -967,7 +1042,7 @@ export const client = {
   },
   sub: domApi.sub,
   [jsSymbol]: domApi[jsSymbol],
-};
+} as JS<DomApi>;
 
 class JSMetaResource<T extends JSONable = JSONable> extends JSMeta {
   readonly hasResources: boolean = true;
@@ -1182,47 +1257,4 @@ export const resources = <
     ): Resources<T, U> => ({ group, values: values.map(make) }),
   });
   return group;
-};
-
-const jsPublicBase = jsPublicPath + "/";
-
-export const serveModules = (
-  jsContext: ServedJSContext = globalServedJSContext,
-): (req: Request) => Promise<Response | void> => {
-  let prevModules: readonly string[] | null = null;
-  let pathResolution: Map<string, string>;
-
-  return async (req) => {
-    const path = new URL(req.url).pathname;
-
-    if (!path.startsWith(jsPublicBase)) return;
-
-    if (prevModules !== jsContext.modules) {
-      prevModules = jsContext.modules;
-      pathResolution = new Map(
-        prevModules.map((path) => {
-          const pathHash = "";
-          return [`${jsPublicBase}${pathHash}/${path}`, path];
-        }),
-      );
-    }
-
-    const resolved = pathResolution.get(path) ?? null;
-    const ext = resolved?.match(extensionRegExp)?.[1];
-    const contentType = ext && contentTypes[ext];
-
-    return resolved
-      ? new Response(await Deno.readFile(resolved), {
-        headers: contentType ? { "Content-Type": contentType } : undefined,
-      })
-      : new Response("Module not found", { status: 404 });
-  };
-};
-
-const extensionRegExp = /\.([^/.]+)$/;
-
-const contentTypes: Record<string, string | undefined> = {
-  css: "text/css; charset=utf-8",
-  js: "text/javascript; charset=utf-8",
-  map: "application/json; charset=utf-8",
 };
